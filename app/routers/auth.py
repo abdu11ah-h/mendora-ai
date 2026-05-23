@@ -51,9 +51,20 @@ async def register(data: RegisterRequest, db: AsyncSession = Depends(get_db)):
         expires_at=get_verification_token_expiry(24),
     )
     db.add(ev)
-    await db.commit()
+    try:
+        await db.commit()
+    except Exception:
+        await db.rollback()
+        raise HTTPException(
+            status_code=503,
+            detail="Database error. Ensure PostgreSQL is linked and migrations have run (alembic upgrade head).",
+        )
 
-    await send_verification_email(user.email, token)
+    try:
+        await send_verification_email(user.email, token)
+    except Exception:
+        pass  # registration succeeds even if SMTP is not configured yet
+
     return {"message": "Registered. Please verify your email."}
 
 
