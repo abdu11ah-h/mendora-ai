@@ -1,3 +1,4 @@
+import asyncio
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, update
@@ -60,10 +61,8 @@ async def register(data: RegisterRequest, db: AsyncSession = Depends(get_db)):
             detail="Database error. Ensure PostgreSQL is linked and migrations have run (alembic upgrade head).",
         )
 
-    try:
-        await send_verification_email(user.email, token)
-    except Exception:
-        pass  # registration succeeds even if SMTP is not configured yet
+    # Fire-and-forget so SMTP slowness/blocks never hang the HTTP response
+    asyncio.create_task(send_verification_email(user.email, token))
 
     return {"message": "Registered. Please verify your email."}
 

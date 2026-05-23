@@ -1,3 +1,4 @@
+import asyncio
 import os
 import smtplib
 from email.mime.multipart import MIMEMultipart
@@ -66,8 +67,12 @@ RESET_EMAIL_TEMPLATE = """<!DOCTYPE html>
 </html>"""
 
 
-async def send_email(to_email: str, subject: str, html_content: str) -> bool:
-    """Send HTML email via Gmail SMTP."""
+def _mail_configured() -> bool:
+    return bool(MAIL_USERNAME and MAIL_PASSWORD)
+
+
+def _send_email_sync(to_email: str, subject: str, html_content: str) -> bool:
+    """Send HTML email via SMTP (blocking — run in a thread)."""
     try:
         msg = MIMEMultipart("alternative")
         msg["Subject"] = subject
@@ -75,7 +80,7 @@ async def send_email(to_email: str, subject: str, html_content: str) -> bool:
         msg["To"] = to_email
         msg.attach(MIMEText(html_content, "html"))
 
-        with smtplib.SMTP(MAIL_SERVER, MAIL_PORT) as server:
+        with smtplib.SMTP(MAIL_SERVER, MAIL_PORT, timeout=10) as server:
             server.starttls()
             server.login(MAIL_USERNAME, MAIL_PASSWORD)
             server.sendmail(MAIL_FROM, to_email, msg.as_string())
@@ -83,6 +88,13 @@ async def send_email(to_email: str, subject: str, html_content: str) -> bool:
     except Exception as e:
         print(f"[Email Error] {e}")
         return False
+
+
+async def send_email(to_email: str, subject: str, html_content: str) -> bool:
+    if not _mail_configured():
+        print("[Email] Skipped — MAIL_USERNAME / MAIL_PASSWORD not set")
+        return False
+    return await asyncio.to_thread(_send_email_sync, to_email, subject, html_content)
 
 
 async def send_verification_email(to_email: str, token: str) -> bool:
