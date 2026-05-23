@@ -18,7 +18,7 @@ from app.services.auth_service import (
     create_refresh_token, hash_refresh_token, generate_verification_token,
     get_refresh_token_expiry, get_verification_token_expiry,
 )
-from app.services.email_service import send_verification_email, send_password_reset_email
+from app.services.email_service import send_verification_email, send_password_reset_email, mail_configured
 from app.dependencies import get_current_user
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -39,6 +39,7 @@ async def register(data: RegisterRequest, db: AsyncSession = Depends(get_db)):
         role=data.role,
         university=data.university,
         department=data.department,
+        is_verified=not mail_configured(),  # no SMTP on Railway → can log in; set MAIL_* to require email verify
     )
     db.add(user)
     await db.flush()  # get user.id
@@ -61,10 +62,14 @@ async def register(data: RegisterRequest, db: AsyncSession = Depends(get_db)):
             detail="Database error. Ensure PostgreSQL is linked and migrations have run (alembic upgrade head).",
         )
 
-    # Fire-and-forget so SMTP slowness/blocks never hang the HTTP response
-    asyncio.create_task(send_verification_email(user.email, token))
+    if mail_configured():
+        asyncio.create_task(send_verification_email(user.email, token))
+        return {"message": "Registered. Please check your email to verify your account."}
 
-    return {"message": "Registered. Please verify your email."}
+    return {
+        "message": "Registered. Email verification is not configured on the server — you can sign in now.",
+        "verified": True,
+    }
 
 
 @router.post("/login", response_model=TokenResponse)
@@ -173,8 +178,9 @@ async def resend_verification(data: ResendVerificationRequest, db: AsyncSession 
     )
     db.add(ev)
     await db.commit()
-    await send_verification_email(user.email, token)
-    return {"message": "Verification email sent"}
+    if mail_configured():
+        asyncio.create_task(send_verification_email(user.email, token))
+    return {"message": "If the email exists and is unverified, a new email will be sent."}
 
 
 @router.post("/forgot-password")
