@@ -71,7 +71,7 @@ async def get_gemini_response(user_message: str, conversation_history: list[dict
 
     try:
         model = genai.GenerativeModel(
-            model_name="gemini-1.5-flash",
+            model_name="gemini-2.0-flash",
             system_instruction=SYSTEM_PROMPT,
         )
         chat = model.start_chat(history=conversation_history)
