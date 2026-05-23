@@ -8,6 +8,11 @@ resend.api_key = os.getenv("RESEND_API_KEY", "")
 FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:3000")
 MAIL_FROM = os.getenv("MAIL_FROM", "onboarding@resend.dev")
 
+
+def mail_configured() -> bool:
+    return bool(os.getenv("RESEND_API_KEY", "").strip())
+
+
 async def send_email(to_email: str, subject: str, html_content: str) -> bool:
     try:
         resend.Emails.send({
