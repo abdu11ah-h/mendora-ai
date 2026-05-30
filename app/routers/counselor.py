@@ -2,6 +2,29 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 from datetime import datetime, timedelta, timezone
+
+def _format_last_active(dt: datetime | None) -> str:
+    if not dt:
+        return "Never"
+    now = datetime.now(timezone.utc)
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    delta = now - dt
+    if delta.days > 0:
+        return f"{delta.days}d ago"
+    hours = delta.seconds // 3600
+    if hours > 0:
+        return f"{hours}h ago"
+    mins = max(1, delta.seconds // 60)
+    return f"{mins}m ago"
+
+
+def _status_from_risk(risk_level: str) -> str:
+    if risk_level in ("high", "critical"):
+        return "At Risk"
+    if risk_level == "medium":
+        return "Monitoring"
+    return "Stable"
 from typing import List
 from uuid import UUID
 
@@ -31,12 +54,33 @@ async def list_students(
             select(RiskFlag).where(RiskFlag.student_id == s.id, RiskFlag.resolved == False).order_by(RiskFlag.severity.desc()).limit(1)
         )
         top_flag = flag_result.scalar_one_or_none()
+        risk_level = top_flag.severity if top_flag else "low"
+
+        mood_result = await db.execute(
+            select(MoodLog)
+            .where(MoodLog.user_id == s.id)
+            .order_by(MoodLog.logged_at.desc())
+            .limit(1)
+        )
+        latest_mood = mood_result.scalar_one_or_none()
+
+        session_count = (
+            await db.execute(select(func.count()).select_from(ChatSession).where(ChatSession.user_id == s.id))
+        ).scalar() or 0
+
         out.append({
             "id": str(s.id),
             "name": f"{s.first_name} {s.last_name}",
             "email": s.email,
             "university": s.university,
-            "risk_level": top_flag.severity if top_flag else "low",
+            "risk_level": risk_level,
+            "risk": risk_level,
+            "mood_score": latest_mood.mood_score if latest_mood and latest_mood.mood_score is not None else 0,
+            "mood": latest_mood.mood_score if latest_mood and latest_mood.mood_score is not None else 0,
+            "sessions": session_count,
+            "last_active": _format_last_active(s.last_login),
+            "lastSeen": _format_last_active(s.last_login),
+            "status": _status_from_risk(risk_level),
         })
     return out
 
@@ -130,11 +174,22 @@ async def get_alerts(counselor=Depends(counselor_only), db: AsyncSession = Depen
         .order_by(RiskFlag.created_at.desc())
     )
     flags = result.scalars().all()
-    return [
-        {"id": str(f.id), "student_id": str(f.student_id), "severity": f.severity,
-         "message": f.message, "created_at": f.created_at}
-        for f in flags
-    ]
+    out = []
+    for f in flags:
+        student_result = await db.execute(select(User).where(User.id == f.student_id))
+        student = student_result.scalar_one_or_none()
+        name = f"{student.first_name} {student.last_name}" if student else "Unknown"
+        out.append({
+            "id": str(f.id),
+            "student_id": str(f.student_id),
+            "name": name,
+            "severity": f.severity,
+            "risk": f.severity,
+            "message": f.message,
+            "created_at": f.created_at,
+            "lastSeen": _format_last_active(f.created_at),
+        })
+    return out
 
 
 @router.post("/alerts/{flag_id}/acknowledge")

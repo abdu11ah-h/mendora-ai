@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, delete
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import List
 from uuid import UUID
 
@@ -97,10 +97,24 @@ async def platform_stats(admin=Depends(admin_only), db: AsyncSession = Depends(g
     total_users = (await db.execute(select(func.count(User.id)))).scalar()
     total_chats = (await db.execute(select(func.count(ChatSession.id)))).scalar()
     risk_count = (await db.execute(select(func.count(RiskFlag.id)).where(RiskFlag.resolved == False))).scalar()
+    since_24h = datetime.now(timezone.utc) - timedelta(hours=24)
+    active_sessions = (
+        await db.execute(
+            select(func.count(User.id)).where(
+                User.last_login.isnot(None),
+                User.last_login >= since_24h,
+            )
+        )
+    ).scalar()
+    student_count = (
+        await db.execute(select(func.count(User.id)).where(User.role == "student"))
+    ).scalar()
     return {
         "total_users": total_users,
         "total_chat_sessions": total_chats,
         "unresolved_risk_flags": risk_count,
+        "active_sessions": active_sessions,
+        "student_count": student_count,
     }
 
 

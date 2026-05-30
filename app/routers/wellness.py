@@ -93,12 +93,29 @@ async def get_mood_stats(
         return {"avg_mood_score": 0, "avg_stress": 0, "avg_sleep": 0, "avg_energy": 0, "count": 0}
 
     count = len(logs)
+    avg_mood = round(sum(l.mood_score or 0 for l in logs) / count, 1)
+    avg_stress = round(sum(l.stress_level for l in logs) / count, 1)
+    avg_sleep = round(sum(l.sleep_hours or 0 for l in logs) / count, 1)
+    avg_energy = round(sum(l.energy_level or 0 for l in logs) / count, 1)
+
+    mood_counts: dict[str, int] = {}
+    for log in logs:
+        mood_counts[log.mood] = mood_counts.get(log.mood, 0) + 1
+    mood_distribution = [
+        {"name": mood, "value": round((c / count) * 100, 1)}
+        for mood, c in sorted(mood_counts.items(), key=lambda x: -x[1])
+    ]
+
     return {
-        "avg_mood_score": round(sum(l.mood_score or 0 for l in logs) / count, 1),
-        "avg_stress": round(sum(l.stress_level for l in logs) / count, 1),
-        "avg_sleep": round(sum(l.sleep_hours or 0 for l in logs) / count, 1),
-        "avg_energy": round(sum(l.energy_level or 0 for l in logs) / count, 1),
+        "avg_mood_score": avg_mood,
+        "avg_stress": avg_stress,
+        "avg_sleep": avg_sleep,
+        "avg_energy": avg_energy,
         "count": count,
+        "wellness_score": int(avg_mood),
+        "burnout_risk": int(avg_stress),
+        "emotional_balance": int((avg_mood + avg_energy) / 2) if avg_energy else int(avg_mood),
+        "mood_distribution": mood_distribution,
     }
 
 

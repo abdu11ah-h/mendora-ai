@@ -20,12 +20,15 @@ from app.services.auth_service import (
 )
 from app.services.email_service import send_verification_email, send_password_reset_email, mail_configured
 from app.dependencies import get_current_user
+from app.role_policy import assert_staff_role_allowed, ROLE_ELIGIBILITY_MESSAGE, is_staff_email_allowed
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 
 @router.post("/register", status_code=201)
 async def register(data: RegisterRequest, db: AsyncSession = Depends(get_db)):
+    assert_staff_role_allowed(data.email, data.role)
+
     # Check duplicate email
     result = await db.execute(select(User).where(User.email == data.email))
     if result.scalar_one_or_none():
@@ -83,6 +86,9 @@ async def login(data: LoginRequest, db: AsyncSession = Depends(get_db)):
         raise HTTPException(403, "Account is deactivated")
     if not user.is_verified:
         raise HTTPException(403, "Please verify your email first")
+
+    if user.role in ("counselor", "admin") and not is_staff_email_allowed(user.email):
+        raise HTTPException(status_code=400, detail=ROLE_ELIGIBILITY_MESSAGE)
 
     access_token = create_access_token({"sub": str(user.id), "email": user.email, "role": user.role})
     raw_refresh, hashed_refresh = create_refresh_token()
